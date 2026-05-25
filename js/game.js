@@ -1,4 +1,4 @@
-// Main Game Logic
+// Main Game Logic with Audio and Powerup System
 
 class CookieFeanGame {
     constructor(canvas) {
@@ -12,10 +12,16 @@ class CookieFeanGame {
         this.level = INITIAL_LEVEL;
         this.combo = 0;
         this.comboTimeout = null;
+        this.totalCatches = 0; // Track total catches for audio milestones
 
         // Entities
         this.player = new Player(PLAYER_START_X, PLAYER_START_Y);
         this.cookies = [];
+        this.powerups = [];
+
+        // Audio system
+        this.audioCache = {};
+        this.initializeAudio();
 
         // Input handling
         this.keys = {};
@@ -24,6 +30,27 @@ class CookieFeanGame {
         // Game loop
         this.gameLoopId = null;
         this.lastFrameTime = Date.now();
+    }
+
+    initializeAudio() {
+        // Pre-load audio files
+        Object.keys(AUDIO_FILES).forEach(key => {
+            const audio = new Audio();
+            audio.src = AUDIO_FILES[key];
+            audio.onerror = () => {
+                console.log(`Audio file not found: ${AUDIO_FILES[key]}`);
+            };
+            this.audioCache[key] = audio;
+        });
+    }
+
+    playSound(soundKey) {
+        if (this.audioCache[soundKey]) {
+            const audio = this.audioCache[soundKey].cloneNode();
+            audio.play().catch(err => {
+                console.log(`Could not play sound: ${soundKey}`, err);
+            });
+        }
     }
 
     setupEventListeners() {
@@ -88,6 +115,13 @@ class CookieFeanGame {
             this.cookies.push(new Cookie(x, 0, speedMultiplier));
         }
 
+        // Spawn powerups (less frequently than cookies)
+        if (Math.random() < POWERUP_SPAWN_RATE && this.powerups.length < 5) {
+            const x = Math.random() * (CANVAS_WIDTH - POWERUP_SIZE);
+            const speedMultiplier = 1 + (this.level - 1) * 0.2;
+            this.powerups.push(new Powerup(x, 0, speedMultiplier));
+        }
+
         // Update cookies
         for (let i = this.cookies.length - 1; i >= 0; i--) {
             this.cookies[i].update();
@@ -105,6 +139,22 @@ class CookieFeanGame {
             }
         }
 
+        // Update powerups
+        for (let i = this.powerups.length - 1; i >= 0; i--) {
+            this.powerups[i].update();
+
+            // Check collision with player
+            if (this.player.collidesWith(this.powerups[i])) {
+                this.catchPowerup(i);
+                continue;
+            }
+
+            // Check if powerup fell off screen
+            if (this.powerups[i].isOffScreen()) {
+                this.powerups.splice(i, 1);
+            }
+        }
+
         // Update level based on score
         const newLevel = Math.floor(this.score / SCORE_PER_LEVEL) + 1;
         if (newLevel !== this.level) {
@@ -119,6 +169,7 @@ class CookieFeanGame {
 
     catchCookie(index) {
         this.cookies.splice(index, 1);
+        this.totalCatches++;
 
         // Calculate points
         let points = COOKIE_POINTS;
@@ -131,6 +182,17 @@ class CookieFeanGame {
         this.score += points;
         this.combo++;
 
+        // Play catch sound
+        this.playSound('CATCH');
+
+        // Check audio milestones
+        if (this.totalCatches % FEAN_LAUGH_MILESTONE === 0) {
+            this.playSound('FEAN_LAUGH');
+        }
+        if (this.totalCatches % OOH_COOKIES_MILESTONE === 0) {
+            this.playSound('OOH_COOKIES');
+        }
+
         // Reset combo timeout
         clearTimeout(this.comboTimeout);
         this.comboTimeout = setTimeout(() => {
@@ -141,10 +203,27 @@ class CookieFeanGame {
         this.updateComboDisplay();
     }
 
+    catchPowerup(index) {
+        this.powerups.splice(index, 1);
+
+        // Add bonus points
+        this.score += POWERUP_POINTS;
+
+        // Play powerup sound
+        this.playSound('POWERUP');
+
+        // Bonus effect: add extra life or bonus combo
+        this.combo += 2;
+        this.updateComboDisplay();
+    }
+
     missedCookie() {
         this.lives--;
         this.combo = 0;
         this.updateComboDisplay();
+
+        // Play miss sound
+        this.playSound('MISS');
     }
 
     updateComboDisplay() {
@@ -171,13 +250,18 @@ class CookieFeanGame {
         this.ctx.fillStyle = gradient;
         this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-        // Draw player
-        this.player.draw(this.ctx);
-
         // Draw cookies
         for (let cookie of this.cookies) {
             cookie.draw(this.ctx);
         }
+
+        // Draw powerups
+        for (let powerup of this.powerups) {
+            powerup.draw(this.ctx);
+        }
+
+        // Draw player (on top)
+        this.player.draw(this.ctx);
     }
 
     updateUI() {
@@ -205,7 +289,9 @@ class CookieFeanGame {
         this.lives = INITIAL_LIVES;
         this.level = INITIAL_LEVEL;
         this.combo = 0;
+        this.totalCatches = 0;
         this.cookies = [];
+        this.powerups = [];
 
         // Reset player
         this.player = new Player(PLAYER_START_X, PLAYER_START_Y);
